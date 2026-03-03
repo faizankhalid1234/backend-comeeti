@@ -19,12 +19,16 @@ app.use(express.json());
 // Database connection
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/comeeti';
 
-async function startServer() {
+let isInitialized = false;
+
+export async function initApp() {
+  if (isInitialized) return;
+
   try {
-    // Connect to MongoDB
+    // Connect to MongoDB (cold start on Vercel, once on local)
     await mongoose.connect(MONGODB_URI);
     console.log('✅ MongoDB connected successfully');
-    
+
     // Routes
     app.use('/api/auth', authRoutes);
     app.use('/api/users', userRoutes);
@@ -36,7 +40,28 @@ async function startServer() {
       res.json({ status: 'OK', message: 'Server is running' });
     });
 
-    // Start server
+    // Handle MongoDB connection errors
+    mongoose.connection.on('error', (err) => {
+      console.error('❌ MongoDB connection error:', err);
+    });
+
+    mongoose.connection.on('disconnected', () => {
+      console.log('⚠️ MongoDB disconnected');
+    });
+
+    isInitialized = true;
+  } catch (error) {
+    console.error('❌ Error initializing app:', error);
+    // Avoid killing the process on Vercel; throw so the function can respond with 500
+    throw error;
+  }
+}
+
+// Local development server (not used on Vercel)
+async function startLocalServer() {
+  try {
+    await initApp();
+
     const server = app.listen(PORT, () => {
       console.log(`✅ Server running on port ${PORT}`);
       console.log(`✅ API available at http://localhost:${PORT}/api`);
@@ -53,19 +78,15 @@ async function startServer() {
       }
     });
   } catch (error) {
-    console.error('❌ Error starting server:', error);
+    console.error('❌ Error starting local server:', error);
     process.exit(1);
   }
 }
 
-// Handle MongoDB connection errors
-mongoose.connection.on('error', (err) => {
-  console.error('❌ MongoDB connection error:', err);
-});
+// Only start the HTTP server when running locally
+if (!process.env.VERCEL) {
+  startLocalServer();
+}
 
-mongoose.connection.on('disconnected', () => {
-  console.log('⚠️ MongoDB disconnected');
-});
-
-// Start the server
-startServer();
+// Export the Express app for Vercel Serverless Functions
+export default app;
